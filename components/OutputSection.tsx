@@ -1,16 +1,20 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Copy, Check, Download, Edit3 } from 'lucide-react';
-import { ProcessingStatus } from '../types';
+import { Copy, Check, Download, Edit3, Send, AlertCircle, FileUp } from 'lucide-react';
+import { ProcessingStatus, UploadedFile } from '../types';
 
 interface OutputSectionProps {
   status: ProcessingStatus;
   result: string;
+  sheetUrl: string;
+  cvFile: UploadedFile | null;
 }
 
-const OutputSection: React.FC<OutputSectionProps> = ({ status, result }) => {
+const OutputSection: React.FC<OutputSectionProps> = ({ status, result, sheetUrl, cvFile }) => {
   const [copied, setCopied] = useState(false);
   const [viewMode, setViewMode] = useState<'preview' | 'raw'>('preview');
+  const [sendingToSheet, setSendingToSheet] = useState(false);
+  const [sendSuccess, setSendSuccess] = useState(false);
 
   // Detect if string is a markdown table (has separator line)
   const isMarkdownTable = (text: string) => {
@@ -48,6 +52,88 @@ const OutputSection: React.FC<OutputSectionProps> = ({ status, result }) => {
     element.download = "ket_qua_hr.txt";
     document.body.appendChild(element);
     element.click();
+  };
+
+  const handleSendToSheet = async () => {
+    if (!sheetUrl) {
+      alert("Vui lòng nhập Link Google Sheet Web App trong phần Cấu hình (Input).");
+      return;
+    }
+
+    setSendingToSheet(true);
+    setSendSuccess(false);
+    
+    // Improved Parsing Logic: Find the line with the most pipes
+    let rowData: string[] = [];
+    const lines = result.trim().split('\n').filter(line => line.trim() !== '');
+    
+    let bestLine = '';
+    let maxPipes = -1;
+
+    for (const line of lines) {
+        // Ignore separator lines like |---|
+        if (line.includes('---')) continue;
+        
+        // Count pipes to find the most "data-like" row
+        const pipeCount = (line.match(/\|/g) || []).length;
+        if (pipeCount > maxPipes) {
+            maxPipes = pipeCount;
+            bestLine = line;
+        }
+    }
+
+    if (maxPipes > 0) {
+        let line = bestLine;
+        if (line.startsWith('|')) line = line.substring(1);
+        if (line.endsWith('|')) line = line.substring(0, line.length - 1);
+        rowData = line.split('|').map(cell => cell.trim());
+    }
+
+    if (rowData.length === 0) {
+        alert("Không tìm thấy dòng dữ liệu hợp lệ (ngăn cách bởi dấu |) để gửi.");
+        setSendingToSheet(false);
+        return;
+    }
+
+    // Prepare payload
+    const payload: any = { rowData };
+
+    // Attach File Data if available
+    if (cvFile && cvFile.data) {
+        try {
+            // cvFile.data is "data:application/pdf;base64,....."
+            // We need to strip the prefix for Google Apps Script
+            const base64Content = cvFile.data.split(',')[1];
+            
+            payload.fileData = {
+                name: cvFile.name,
+                mimeType: cvFile.type,
+                base64: base64Content
+            };
+        } catch (e) {
+            console.warn("Could not prepare file for upload", e);
+        }
+    }
+
+    try {
+        // Use no-cors mode for Google Apps Script Web App.
+        await fetch(sheetUrl, {
+            method: 'POST',
+            mode: 'no-cors', 
+            headers: {
+                'Content-Type': 'text/plain',
+            },
+            body: JSON.stringify(payload),
+        });
+        
+        setSendSuccess(true);
+        setTimeout(() => setSendSuccess(false), 3000);
+    } catch (error) {
+        console.error("Error sending to sheet:", error);
+        alert("Gửi thất bại. Hãy kiểm tra lại đường link Script hoặc kết nối mạng.");
+    } finally {
+        setSendingToSheet(false);
+    }
   };
 
   // Convert Markdown table to TSV (excluding separator)
@@ -99,7 +185,7 @@ const OutputSection: React.FC<OutputSectionProps> = ({ status, result }) => {
           </tbody>
         </table>
         <div className="bg-gray-50 px-4 py-2 text-xs text-gray-500 text-center border-t border-gray-200">
-          * Dữ liệu dạng bảng thô (không có tiêu đề). Nhấn "Copy Excel" để dán.
+          * Dữ liệu dạng bảng thô.
         </div>
       </div>
     );
@@ -207,6 +293,30 @@ const OutputSection: React.FC<OutputSectionProps> = ({ status, result }) => {
           </div>
         </div>
         <div className="flex items-center space-x-2">
+          {sheetUrl && canConvertToExcel && (
+            <button
+              onClick={handleSendToSheet}
+              disabled={sendingToSheet}
+              className={`flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                sendSuccess
+                  ? 'bg-green-600 text-white'
+                  : 'bg-green-50 text-green-700 hover:bg-green-100 border border-green-200'
+              }`}
+              title="Gửi dữ liệu vào Google Sheet & Lưu file CV vào Drive"
+            >
+              {sendingToSheet ? (
+                <span className="w-3 h-3 border-2 border-green-700 border-t-transparent rounded-full animate-spin"></span>
+              ) : sendSuccess ? (
+                <Check className="w-3 h-3" />
+              ) : (
+                <>
+                    {cvFile ? <FileUp className="w-3 h-3" /> : <Send className="w-3 h-3" />}
+                </>
+              )}
+              <span>{sendingToSheet ? 'Đang gửi...' : sendSuccess ? 'Hoàn tất!' : (cvFile ? 'Lưu Sheet & Drive' : 'Gửi vào Sheet')}</span>
+            </button>
+          )}
+
           <button
             onClick={handleDownload}
             className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
@@ -258,6 +368,17 @@ const OutputSection: React.FC<OutputSectionProps> = ({ status, result }) => {
           )
         )}
       </div>
+      
+      {/* Troubleshooting Tip */}
+      {sheetUrl && (
+          <div className="bg-yellow-50 px-4 py-2 border-t border-yellow-100 text-[10px] text-yellow-700 flex items-start gap-1">
+              <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0"/>
+              <p>
+                  Nếu nút Gửi báo "Đã gửi" nhưng Sheet không có dữ liệu: Hãy kiểm tra Script Deployment. 
+                  Quyền truy cập phải là "Anyone" (Bất kỳ ai). Nếu sửa code Script, nhớ chọn "New deployment".
+              </p>
+          </div>
+      )}
     </div>
   );
 };

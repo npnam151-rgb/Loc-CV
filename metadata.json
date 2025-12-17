@@ -1,4 +1,5 @@
 {
   "name": "HR CV Formatter (Trợ lý HR)",
-  "description": "Ứng dụng hỗ trợ HR chuẩn hóa và định dạng lại CV ứng viên theo quy chuẩn công ty sử dụng Gemini AI."
+  "description": "Ứng dụng hỗ trợ HR chuẩn hóa và định dạng lại CV ứng viên theo quy chuẩn công ty sử dụng Gemini AI.",
+  "requestFramePermissions": []
 }
