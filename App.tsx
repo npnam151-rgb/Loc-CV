@@ -6,25 +6,10 @@ import { processCV } from './services/geminiService';
 
 const FIXED_SHEET_URL = "https://script.google.com/macros/s/AKfycbwFIYJXURgK0h9rbIblM56fIsI7n1-sAfSzf1CQPAa23Jhf5a5VCxDcc-NpTeZawaYIUA/exec";
 
-const DEFAULT_TEMPLATE = `YÊU CẦU TRÍCH XUẤT DỮ LIỆU (ĐỊNH DẠNG RAW DATA):
+const DEFAULT_TEMPLATE = `TRÍCH XUẤT 1 DÒNG DUY NHẤT:
+Họ tên | Quốc tịch | Địa chỉ hiện tại | Năm sinh | Email | Số điện thoại | Đại học | Chứng chỉ | Trường đã dạy | Kinh nghiệm
 
-Vui lòng trích xuất thông tin từ CV và trả về 1 DÒNG DỮ LIỆU DUY NHẤT.
-- Các trường thông tin phân cách nhau bởi dấu gạch đứng "|".
-- QUAN TRỌNG: KHÔNG xuất hàng tiêu đề (Header). 
-- KHÔNG sử dụng định dạng bảng Markdown (không cần dòng "|---|").
-- Chỉ xuất dữ liệu thô.
-
-Các trường cần trích xuất (theo thứ tự chính xác):
-1. Họ và tên
-2. Quốc tịch (Nếu không rõ ghi "N/A")
-3. Địa chỉ hiện tại (Ghi Quận/Huyện, Tỉnh/Thành phố hoặc "N/A")
-4. Năm sinh (Chỉ lấy năm. Ví dụ: 1995)
-5. Email
-6. Số điện thoại
-7. Bằng đại học (Ghi Tên trường - Chuyên ngành)
-8. Chứng chỉ giảng dạy (Ghi tên chứng chỉ hoặc "Không")
-9. Danh sách các trường đã dạy (Liệt kê ngắn gọn)
-10. Tóm tắt kinh nghiệm (Tóm tắt ngắn gọn dưới 50 từ)`;
+(Lưu ý: Ngăn cách bởi dấu "|", không tiêu đề, nếu thiếu ghi N/A)`;
 
 function App() {
   const [inputMode, setInputMode] = useState<InputMode>(InputMode.FILE);
@@ -34,26 +19,19 @@ function App() {
   const [status, setStatus] = useState<ProcessingStatus>(ProcessingStatus.IDLE);
 
   const parseResultToRowData = (result: string): string[] => {
-    const lines = result.trim().split('\n').filter(line => line.trim() !== '');
-    let bestLine = '';
-    let maxPipes = -1;
+    const lines = result.trim().split('\n').filter(l => l.includes('|'));
+    if (lines.length === 0) return [];
 
-    for (const line of lines) {
-        if (line.includes('---')) continue;
-        const pipeCount = (line.match(/\|/g) || []).length;
-        if (pipeCount > maxPipes) {
-            maxPipes = pipeCount;
-            bestLine = line;
-        }
-    }
+    // Lấy dòng có nhiều dấu "|" nhất (khả năng cao là dòng dữ liệu)
+    const bestLine = lines.reduce((prev, curr) => 
+        (curr.match(/\|/g) || []).length > (prev.match(/\|/g) || []).length ? curr : prev
+    );
 
-    if (maxPipes > 0) {
-        let line = bestLine;
-        if (line.startsWith('|')) line = line.substring(1);
-        if (line.endsWith('|')) line = line.substring(0, line.length - 1);
-        return line.split('|').map(cell => cell.trim());
-    }
-    return [];
+    let cleanLine = bestLine.trim();
+    if (cleanLine.startsWith('|')) cleanLine = cleanLine.substring(1);
+    if (cleanLine.endsWith('|')) cleanLine = cleanLine.substring(0, cleanLine.length - 1);
+    
+    return cleanLine.split('|').map(cell => cell.trim());
   };
 
   const sendToGoogleSheet = async (rowData: string[], file: UploadedFile | null) => {
@@ -67,55 +45,54 @@ function App() {
                 base64: base64Content
             };
         } catch (e) {
-            console.warn("Could not prepare file for upload", e);
+            console.warn("File preparation failed", e);
         }
     }
 
-    await fetch(FIXED_SHEET_URL, {
+    // Gửi ngầm không đợi kết quả để tránh nghẽn UI
+    fetch(FIXED_SHEET_URL, {
         method: 'POST',
         mode: 'no-cors', 
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(payload),
-    });
+    }).catch(err => console.error("Sheet Error:", err));
   };
 
   const handleProcess = async () => {
     setStatus(ProcessingStatus.PROCESSING);
     
     try {
-      // 1. Process CV with AI
-      const formattedCV = await processCV(templateInstructions, cvText, cvFile);
+      // 1. AI Processing
+      const result = await processCV(templateInstructions, cvText, cvFile);
       
-      // 2. Parse the result to get structured data
-      const rowData = parseResultToRowData(formattedCV);
+      // 2. Data Parsing
+      const rowData = parseResultToRowData(result);
       
-      if (rowData.length === 0) {
-          throw new Error("Không trích xuất được dữ liệu hợp lệ từ CV.");
+      if (rowData.length < 3) {
+          throw new Error("AI trả về sai định dạng. Hãy thử lại hoặc dùng nút 'Dán văn bản'.");
       }
 
-      // 3. Send to Google Sheet (Upload File + Data)
+      // 3. Send to Sheet (Async)
       await sendToGoogleSheet(rowData, cvFile);
 
       setStatus(ProcessingStatus.SUCCESS);
       
-      // Reset after success if needed, or keep status to show "Success" checkmark
+      // Auto-reset UI after success
       setTimeout(() => {
-          if (status === ProcessingStatus.SUCCESS) {
-              setCvFile(null);
-              setCvText('');
-              setStatus(ProcessingStatus.IDLE);
-          }
-      }, 3000); // Auto reset UI after 3s
+          setCvFile(null);
+          setCvText('');
+          setStatus(ProcessingStatus.IDLE);
+      }, 3500);
 
     } catch (error: any) {
       console.error(error);
-      alert(error.message || "Đã xảy ra lỗi khi xử lý.");
+      alert(error.message);
       setStatus(ProcessingStatus.ERROR);
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50 text-gray-900">
+    <div className="min-h-screen flex flex-col bg-gray-50 text-gray-900 font-['Inter']">
       <Header />
       
       <main className="flex-1 w-full mx-auto px-4 sm:px-6 py-8 flex justify-center">
@@ -133,6 +110,12 @@ function App() {
               isProcessing={status === ProcessingStatus.PROCESSING}
               status={status}
             />
+            
+            {status === ProcessingStatus.ERROR && (
+                <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs italic">
+                    * Mẹo: Nếu lỗi kéo dài, hãy thử copy văn bản từ CV rồi dùng chức năng "Dán văn bản" thay vì tải file.
+                </div>
+            )}
         </div>
       </main>
     </div>

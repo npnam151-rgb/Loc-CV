@@ -8,40 +8,33 @@ const processCV = async (
 ): Promise<string> => {
   const apiKey = process.env.API_KEY;
   if (!apiKey) {
-    throw new Error("API Key chưa được cấu hình.");
+    throw new Error("API Key chưa được cấu hình. Hãy kiểm tra Environment Variables trên Vercel.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
 
   const systemInstruction = `
-    Bạn là một Trợ lý Nhân sự (HR Assistant) chuyên nghiệp và tỉ mỉ.
-    Nhiệm vụ của bạn là xử lý hồ sơ năng lực/CV của ứng viên theo chính xác "Yêu cầu xử lý" được cung cấp.
+    Bạn là một Trợ lý Nhân sự (HR Assistant) chuyên nghiệp.
+    Nhiệm vụ: Trích xuất thông tin CV theo đúng mẫu yêu cầu.
     
-    Quy tắc xử lý:
-    1. Giữ nguyên sự thật: Không được bịa đặt thông tin. Nếu thông tin thiếu, hãy để trống hoặc ghi "Không có thông tin" (hoặc N/A theo yêu cầu).
-    2. Cấu trúc: Tuân thủ chặt chẽ cấu trúc và các trường thông tin được yêu cầu trong hướng dẫn.
-    3. Ngôn ngữ: Giữ nguyên ngôn ngữ của CV gốc trừ khi mẫu yêu cầu dịch.
-    4. Định dạng đầu ra: Tuân thủ định dạng được yêu cầu trong hướng dẫn (ví dụ: Markdown, CSV, 1 dòng Excel, JSON...). Nếu không có yêu cầu cụ thể về định dạng, hãy mặc định sử dụng Markdown chuyên nghiệp.
-    5. Chỉ trả về nội dung kết quả, không thêm lời chào hay giải thích ngoài lề.
+    Quy tắc:
+    1. Chỉ trả về dữ liệu thô (Raw data), không giải thích.
+    2. Nếu thiếu thông tin, ghi "N/A".
+    3. Định dạng: Các trường cách nhau bằng dấu "|".
   `;
 
   const userPrompt = `
-    Đây là Yêu cầu xử lý (Mẫu định dạng hoặc Yêu cầu trích xuất):
-    """
+    YÊU CẦU:
     ${instructions}
-    """
 
-    ${cvText ? `Đây là nội dung văn bản thô từ CV gốc:\n"""\n${cvText}\n"""` : ''}
-    
-    ${cvFile ? `Tôi đã đính kèm tệp CV gốc (dưới dạng ảnh hoặc PDF). Hãy trích xuất thông tin và xử lý theo yêu cầu.` : ''}
-
-    Hãy thực hiện yêu cầu trên với CV này.
+    DỮ LIỆU CV:
+    ${cvText ? `Văn bản CV: ${cvText}` : ''}
+    ${cvFile ? `(Sử dụng tệp đính kèm để trích xuất)` : ''}
   `;
 
   const parts: any[] = [{ text: userPrompt }];
 
   if (cvFile) {
-    // Remove data URL prefix provided by FileReader (e.g., "data:image/png;base64,")
     const base64Data = cvFile.data.split(',')[1]; 
     parts.unshift({
       inlineData: {
@@ -52,21 +45,39 @@ const processCV = async (
   }
 
   try {
+    // Sử dụng model gemini-3-flash-preview theo hướng dẫn mới nhất
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3-flash-preview',
       contents: {
         parts: parts
       },
       config: {
         systemInstruction: systemInstruction,
-        temperature: 0.3, // Low temperature for factual consistency
+        temperature: 0.1,
       }
     });
 
-    return response.text || "Không thể tạo nội dung. Vui lòng thử lại.";
-  } catch (error) {
-    console.error("Gemini API Error:", error);
-    throw new Error("Đã xảy ra lỗi khi xử lý CV. Vui lòng kiểm tra lại file hoặc kết nối mạng.");
+    const result = response.text;
+    if (!result) {
+      throw new Error("AI không trả về nội dung. Có thể file quá lớn hoặc không đọc được.");
+    }
+
+    return result;
+  } catch (error: any) {
+    console.error("Lỗi Gemini API:", error);
+    
+    // Phân loại lỗi để người dùng dễ xử lý
+    if (error.message?.includes('429')) {
+      throw new Error("Hết hạn mức (Rate Limit). Vui lòng thử lại sau 1 phút.");
+    }
+    if (error.message?.includes('API key not valid')) {
+      throw new Error("API Key không hợp lệ. Hãy kiểm tra lại cấu hình Project trên Vercel.");
+    }
+    if (error.message?.includes('fetch failed')) {
+        throw new Error("Lỗi kết nối mạng hoặc Vercel chặn yêu cầu.");
+    }
+
+    throw new Error(`Lỗi hệ thống: ${error.message || "Vui lòng thử lại hoặc dùng văn bản thay vì file."}`);
   }
 };
 
