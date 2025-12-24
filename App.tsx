@@ -7,9 +7,17 @@ import { processCV } from './services/geminiService';
 const FIXED_SHEET_URL = "https://script.google.com/macros/s/AKfycbwFIYJXURgK0h9rbIblM56fIsI7n1-sAfSzf1CQPAa23Jhf5a5VCxDcc-NpTeZawaYIUA/exec";
 
 const DEFAULT_TEMPLATE = `TRÍCH XUẤT 1 DÒNG DUY NHẤT:
-Họ tên | Quốc tịch | Địa chỉ hiện tại | Năm sinh | Email | Số điện thoại | Đại học | Chứng chỉ | Trường đã dạy | Kinh nghiệm
+Họ tên | Quốc tịch | Địa chỉ hiện tại | Năm sinh | Email | Số điện thoại | Đại học | Chứng chỉ | Trường đã dạy | Kinh nghiệm | Đề xuất giảng dạy
 
-(Lưu ý: Ngăn cách bởi dấu "|", không tiêu đề, nếu thiếu ghi N/A)`;
+(Quy tắc:
+1. Ngăn cách các trường bởi dấu "|".
+2. Cột "Đề xuất giảng dạy": AI tự phân tích CV và đưa ra gợi ý ngắn gọn gồm 4 yếu tố:
+   - Hình thức: Online hoặc Trực tiếp
+   - Môi trường: Trường học / Trung tâm / Doanh nghiệp / Lớp cá nhân
+   - Lứa tuổi: Mầm non / Tiểu học / Teen / Người lớn
+   - Trình độ: Cơ bản / Giao tiếp / Luyện thi (IELTS/TOEIC)
+   (Ví dụ output: Trực tiếp - Trung tâm - Teen - Luyện thi IELTS)
+3. Nếu thiếu thông tin ghi N/A)`;
 
 function App() {
   const [inputMode, setInputMode] = useState<InputMode>(InputMode.FILE);
