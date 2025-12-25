@@ -1,35 +1,30 @@
 import { GoogleGenAI } from "@google/genai";
 import { UploadedFile } from "../types";
 
+const wait = (ms: number) => new Promise(res => setTimeout(res, ms));
+
 const processCV = async (
   instructions: string, 
   cvText: string, 
-  cvFile: UploadedFile | null
+  cvFile: UploadedFile | null,
+  retryCount = 1
 ): Promise<string> => {
   const apiKey = process.env.API_KEY;
   if (!apiKey) {
-    throw new Error("API Key chưa được cấu hình. Hãy kiểm tra Environment Variables trên Vercel.");
+    throw new Error("API Key chưa được cấu hình trên Vercel.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
 
-  const systemInstruction = `
-    Bạn là một Trợ lý Nhân sự (HR Assistant) chuyên nghiệp.
-    Nhiệm vụ: Trích xuất thông tin CV theo đúng mẫu yêu cầu.
-    
-    Quy tắc:
-    1. Chỉ trả về dữ liệu thô (Raw data), không giải thích.
-    2. Nếu thiếu thông tin, ghi "N/A".
-    3. Định dạng: Các trường cách nhau bằng dấu "|".
-  `;
+  // Cập nhật instruction để AI hiểu nhiệm vụ phân tích/đánh giá
+  const systemInstruction = "Bạn là chuyên gia HR. Nhiệm vụ: Trích xuất thông tin và Phân tích sự phù hợp từ CV. Trả về đúng 1 dòng dữ liệu ngăn cách bởi dấu |. Không giải thích thêm.";
 
   const userPrompt = `
     YÊU CẦU:
     ${instructions}
-
-    DỮ LIỆU CV:
-    ${cvText ? `Văn bản CV: ${cvText}` : ''}
-    ${cvFile ? `(Sử dụng tệp đính kèm để trích xuất)` : ''}
+    
+    DỮ LIỆU ĐẦU VÀO:
+    ${cvText || "(Xem file đính kèm)"}
   `;
 
   const parts: any[] = [{ text: userPrompt }];
@@ -45,39 +40,34 @@ const processCV = async (
   }
 
   try {
-    // Sử dụng model gemini-3-flash-preview theo hướng dẫn mới nhất
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: {
-        parts: parts
-      },
+      contents: { parts },
       config: {
-        systemInstruction: systemInstruction,
-        temperature: 0.1,
+        systemInstruction,
+        temperature: 0.1, // Giữ nhiệt độ thấp để format ổn định
       }
     });
 
     const result = response.text;
-    if (!result) {
-      throw new Error("AI không trả về nội dung. Có thể file quá lớn hoặc không đọc được.");
-    }
-
+    if (!result) throw new Error("AI trả về rỗng.");
     return result;
+
   } catch (error: any) {
-    console.error("Lỗi Gemini API:", error);
-    
-    // Phân loại lỗi để người dùng dễ xử lý
-    if (error.message?.includes('429')) {
-      throw new Error("Hết hạn mức (Rate Limit). Vui lòng thử lại sau 1 phút.");
-    }
-    if (error.message?.includes('API key not valid')) {
-      throw new Error("API Key không hợp lệ. Hãy kiểm tra lại cấu hình Project trên Vercel.");
-    }
-    if (error.message?.includes('fetch failed')) {
-        throw new Error("Lỗi kết nối mạng hoặc Vercel chặn yêu cầu.");
+    // Nếu là lỗi mạng hoặc lỗi nhất thời và vẫn còn lượt thử
+    if (retryCount > 0 && !error.message?.includes('401') && !error.message?.includes('403')) {
+      console.warn(`Đang thử lại... Còn ${retryCount} lượt.`);
+      await wait(1500); // Đợi 1.5s trước khi thử lại
+      return processCV(instructions, cvText, cvFile, retryCount - 1);
     }
 
-    throw new Error(`Lỗi hệ thống: ${error.message || "Vui lòng thử lại hoặc dùng văn bản thay vì file."}`);
+    console.error("Lỗi cuối cùng:", error);
+    
+    if (error.message?.includes('429')) {
+      throw new Error("Hệ thống đang quá tải (Rate Limit). Vui lòng đợi 30 giây rồi thử lại.");
+    }
+    
+    throw new Error(error.message || "Lỗi kết nối. Hãy thử dùng văn bản thay vì file.");
   }
 };
 

@@ -1,5 +1,5 @@
-import React, { useRef } from 'react';
-import { Upload, Type, X, File as FileIcon, Check, Send } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { Upload, Type, X, File as FileIcon, Check, Send, AlertTriangle } from 'lucide-react';
 import { InputMode, UploadedFile, ProcessingStatus } from '../types';
 
 interface InputSectionProps {
@@ -30,19 +30,58 @@ const InputSection: React.FC<InputSectionProps> = ({
   status,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const processFile = (file: File) => {
+    // Validate File Type
+    const validTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg'];
+    if (!validTypes.includes(file.type)) {
+        alert("Định dạng không hỗ trợ. Vui lòng tải lên PDF hoặc ảnh (JPG, PNG).");
+        return;
+    }
+
+    // GIỚI HẠN 5MB: Tránh lỗi timeout của Vercel Serverless Function (10s limit)
+    if (file.size > 5 * 1024 * 1024) {
+      alert("File quá lớn (tối đa 5MB). Vui lòng nén file hoặc dùng chức năng 'Dán văn bản'.");
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setCvFile({
+        name: file.name,
+        type: file.type,
+        data: reader.result as string
+      });
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setCvFile({
-          name: file.name,
-          type: file.type,
-          data: reader.result as string
-        });
-      };
-      reader.readAsDataURL(file);
+      processFile(file);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processFile(file);
     }
   };
 
@@ -60,11 +99,14 @@ const InputSection: React.FC<InputSectionProps> = ({
           <Upload className="w-4 h-4 mr-2 text-blue-600" />
           Upload Hồ Sơ
         </h2>
+        {status === ProcessingStatus.ERROR && (
+           <div className="flex items-center text-red-500 text-[10px] font-medium bg-red-50 px-2 py-1 rounded animate-pulse">
+             <AlertTriangle className="w-3 h-3 mr-1" /> Lỗi xử lý
+           </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-5 space-y-6">
-        
-        {/* Upload Input */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Chọn hồ sơ ứng viên
@@ -81,7 +123,7 @@ const InputSection: React.FC<InputSectionProps> = ({
             >
               <div className="flex items-center space-x-2">
                 <Upload className="w-4 h-4" />
-                <span>File (PDF/Ảnh)</span>
+                <span>File (Tối đa 5MB)</span>
               </div>
             </button>
             <button
@@ -104,11 +146,20 @@ const InputSection: React.FC<InputSectionProps> = ({
               {!cvFile ? (
                 <div 
                   onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 hover:bg-blue-50 transition-colors cursor-pointer h-48 flex flex-col justify-center items-center"
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer h-48 flex flex-col justify-center items-center ${
+                    isDragging 
+                      ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200 ring-opacity-50' 
+                      : 'border-gray-300 hover:border-blue-500 hover:bg-blue-50'
+                  }`}
                 >
-                  <Upload className="w-8 h-8 mx-auto text-gray-400 mb-2" />
-                  <p className="text-sm text-gray-600 font-medium">Nhấn để tải lên file CV</p>
-                  <p className="text-xs text-gray-400 mt-1">Hỗ trợ PDF, PNG, JPG</p>
+                  <Upload className={`w-8 h-8 mx-auto mb-2 transition-colors ${isDragging ? 'text-blue-600' : 'text-gray-400'}`} />
+                  <p className="text-sm text-gray-600 font-medium">
+                    {isDragging ? "Thả file vào đây" : "Nhấn để tải hoặc Kéo thả file CV"}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1 text-center">Hỗ trợ PDF, PNG, JPG (Dưới 5MB)</p>
                   <input 
                     type="file" 
                     ref={fileInputRef} 
@@ -141,13 +192,12 @@ const InputSection: React.FC<InputSectionProps> = ({
             <textarea
               value={cvText}
               onChange={(e) => setCvText(e.target.value)}
-              placeholder="Copy nội dung CV và dán vào đây..."
+              placeholder="Copy nội dung CV và dán vào đây để xử lý nhanh nhất..."
               className="w-full h-48 p-3 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
             />
           )}
         </div>
 
-        {/* Hidden Template Instructions but Logic Remains */}
         <div className="hidden">
             <textarea
               value={templateInstructions}
@@ -174,17 +224,17 @@ const InputSection: React.FC<InputSectionProps> = ({
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
-              <span>Đang xử lý & Upload...</span>
+              <span>Đang xử lý & Lưu...</span>
             </>
           ) : status === ProcessingStatus.SUCCESS ? (
              <>
                 <Check className="w-5 h-5" />
-                <span>Thành công! Upload tiếp?</span>
+                <span>Tiếp tục CV khác</span>
              </>
           ) : (
             <>
               <Send className="w-5 h-5" />
-              <span>Upload</span>
+              <span>Xử lý & Lưu Sheet</span>
             </>
           )}
         </button>
