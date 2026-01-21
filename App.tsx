@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
 import Header from './components/Header';
 import InputSection from './components/InputSection';
-import OutputSection from './components/OutputSection'; 
-import ScriptHelp from './components/ScriptHelp';
 import { InputMode, ProcessingStatus, UploadedFile } from './types';
 import { processCV } from './services/geminiService';
 import { APP_CONFIG } from './constants';
@@ -28,7 +26,6 @@ function App() {
   const [templateInstructions, setTemplateInstructions] = useState(DEFAULT_TEMPLATE);
   const [status, setStatus] = useState<ProcessingStatus>(ProcessingStatus.IDLE);
   const [result, setResult] = useState<string>(''); 
-  const [showScriptHelp, setShowScriptHelp] = useState(false);
 
   const parseResultToRowData = (result: string): string[] => {
     const lines = result.trim().split('\n').filter(l => l.includes('|'));
@@ -66,8 +63,6 @@ function App() {
     }
 
     // Thêm timestamp vào URL để tránh cache trình duyệt, đảm bảo gọi request mới nhất
-    // Lưu ý: mode: 'no-cors' nên chúng ta không đọc được response body,
-    // nhưng việc thêm query param giúp Google Script nhận diện đây là request mới.
     const urlWithCacheBuster = `${APP_CONFIG.SHEET_URL}?v=${Date.now()}`;
 
     // Gửi request
@@ -100,6 +95,7 @@ function App() {
           setCvFile(null);
           setCvText('');
           setStatus(ProcessingStatus.IDLE);
+          setResult(''); // Clear result message
       }, 3500);
 
     } catch (error: any) {
@@ -112,41 +108,24 @@ function App() {
 
   return (
     <div className="min-h-screen flex flex-col font-['Inter'] bg-[#f9fafb]">
-      {showScriptHelp && <ScriptHelp onClose={() => setShowScriptHelp(false)} />}
-      
       <div className="relative z-10 flex flex-col min-h-screen">
-        <Header onOpenScriptHelp={() => setShowScriptHelp(true)} />
+        <Header />
         
-        <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 grid grid-cols-1 lg:grid-cols-2 gap-8 h-[calc(100vh-4rem)]">
-          <div className="h-full min-h-[500px]">
-              <InputSection 
-                inputMode={inputMode}
-                setInputMode={setInputMode}
-                cvText={cvText}
-                setCvText={setCvText}
-                cvFile={cvFile}
-                setCvFile={setCvFile}
-                templateInstructions={templateInstructions}
-                setTemplateInstructions={setTemplateInstructions}
-                onProcess={handleProcess}
-                isProcessing={status === ProcessingStatus.PROCESSING}
-                status={status}
-              />
-              
-              {status === ProcessingStatus.ERROR && (
-                  <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs italic">
-                      * Mẹo: Nếu lỗi kéo dài, hãy thử copy văn bản từ CV rồi dùng chức năng "Dán văn bản" thay vì tải file.
-                  </div>
-              )}
-          </div>
-
-          <div className="h-full min-h-[500px]">
-             <OutputSection 
-                status={status}
-                result={result}
-                cvFile={cvFile}
-             />
-          </div>
+        <main className="flex-1 w-full max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+            <InputSection 
+              inputMode={inputMode}
+              setInputMode={setInputMode}
+              cvText={cvText}
+              setCvText={setCvText}
+              cvFile={cvFile}
+              setCvFile={setCvFile}
+              templateInstructions={templateInstructions}
+              setTemplateInstructions={setTemplateInstructions}
+              onProcess={handleProcess}
+              isProcessing={status === ProcessingStatus.PROCESSING}
+              status={status}
+              result={result}
+            />
         </main>
       </div>
     </div>
