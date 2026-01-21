@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import Header from './components/Header';
 import InputSection from './components/InputSection';
+import OutputSection from './components/OutputSection'; 
+import ScriptHelp from './components/ScriptHelp';
 import { InputMode, ProcessingStatus, UploadedFile } from './types';
 import { processCV } from './services/geminiService';
-
-const FIXED_SHEET_URL = "https://script.google.com/macros/s/AKfycbwFIYJXURgK0h9rbIblM56fIsI7n1-sAfSzf1CQPAa23Jhf5a5VCxDcc-NpTeZawaYIUA/exec";
+import { APP_CONFIG } from './constants';
 
 const DEFAULT_TEMPLATE = `TRÍCH XUẤT 1 DÒNG DUY NHẤT:
 Họ tên | Quốc tịch | Địa chỉ hiện tại | Năm sinh | Email | Số điện thoại | Đại học | Chứng chỉ | Trường đã dạy | Tóm tắt kinh nghiệm | Đề xuất giảng dạy
@@ -26,12 +27,13 @@ function App() {
   const [cvFile, setCvFile] = useState<UploadedFile | null>(null);
   const [templateInstructions, setTemplateInstructions] = useState(DEFAULT_TEMPLATE);
   const [status, setStatus] = useState<ProcessingStatus>(ProcessingStatus.IDLE);
+  const [result, setResult] = useState<string>(''); 
+  const [showScriptHelp, setShowScriptHelp] = useState(false);
 
   const parseResultToRowData = (result: string): string[] => {
     const lines = result.trim().split('\n').filter(l => l.includes('|'));
     if (lines.length === 0) return [];
 
-    // Lấy dòng có nhiều dấu "|" nhất (khả năng cao là dòng dữ liệu)
     const bestLine = lines.reduce((prev, curr) => 
         (curr.match(/\|/g) || []).length > (prev.match(/\|/g) || []).length ? curr : prev
     );
@@ -44,7 +46,12 @@ function App() {
   };
 
   const sendToGoogleSheet = async (rowData: string[], file: UploadedFile | null) => {
-    const payload: any = { rowData };
+    // Dữ liệu gửi đi bao gồm cả folderId lấy từ config
+    const payload: any = { 
+        rowData,
+        folderId: APP_CONFIG.FOLDER_ID 
+    };
+
     if (file && file.data) {
         try {
             const base64Content = file.data.split(',')[1];
@@ -58,8 +65,13 @@ function App() {
         }
     }
 
-    // Gửi ngầm không đợi kết quả để tránh nghẽn UI
-    fetch(FIXED_SHEET_URL, {
+    // Thêm timestamp vào URL để tránh cache trình duyệt, đảm bảo gọi request mới nhất
+    // Lưu ý: mode: 'no-cors' nên chúng ta không đọc được response body,
+    // nhưng việc thêm query param giúp Google Script nhận diện đây là request mới.
+    const urlWithCacheBuster = `${APP_CONFIG.SHEET_URL}?v=${Date.now()}`;
+
+    // Gửi request
+    fetch(urlWithCacheBuster, {
         method: 'POST',
         mode: 'no-cors', 
         headers: { 'Content-Type': 'text/plain' },
@@ -69,24 +81,21 @@ function App() {
 
   const handleProcess = async () => {
     setStatus(ProcessingStatus.PROCESSING);
+    setResult(''); 
     
     try {
-      // 1. AI Processing
-      const result = await processCV(templateInstructions, cvText, cvFile);
+      const aiResult = await processCV(templateInstructions, cvText, cvFile);
+      setResult(aiResult); 
       
-      // 2. Data Parsing
-      const rowData = parseResultToRowData(result);
-      
+      const rowData = parseResultToRowData(aiResult);
       if (rowData.length < 3) {
           throw new Error("AI trả về sai định dạng. Hãy thử lại hoặc dùng nút 'Dán văn bản'.");
       }
 
-      // 3. Send to Sheet (Async)
       await sendToGoogleSheet(rowData, cvFile);
 
       setStatus(ProcessingStatus.SUCCESS);
       
-      // Auto-reset UI after success
       setTimeout(() => {
           setCvFile(null);
           setCvText('');
@@ -97,36 +106,49 @@ function App() {
       console.error(error);
       alert(error.message);
       setStatus(ProcessingStatus.ERROR);
+      setResult(error.message); 
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50 text-gray-900 font-['Inter']">
-      <Header />
+    <div className="min-h-screen flex flex-col font-['Inter'] bg-[#f9fafb]">
+      {showScriptHelp && <ScriptHelp onClose={() => setShowScriptHelp(false)} />}
       
-      <main className="flex-1 w-full mx-auto px-4 sm:px-6 py-8 flex justify-center">
-        <div className="w-full max-w-lg">
-            <InputSection 
-              inputMode={inputMode}
-              setInputMode={setInputMode}
-              cvText={cvText}
-              setCvText={setCvText}
-              cvFile={cvFile}
-              setCvFile={setCvFile}
-              templateInstructions={templateInstructions}
-              setTemplateInstructions={setTemplateInstructions}
-              onProcess={handleProcess}
-              isProcessing={status === ProcessingStatus.PROCESSING}
-              status={status}
-            />
-            
-            {status === ProcessingStatus.ERROR && (
-                <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs italic">
-                    * Mẹo: Nếu lỗi kéo dài, hãy thử copy văn bản từ CV rồi dùng chức năng "Dán văn bản" thay vì tải file.
-                </div>
-            )}
-        </div>
-      </main>
+      <div className="relative z-10 flex flex-col min-h-screen">
+        <Header onOpenScriptHelp={() => setShowScriptHelp(true)} />
+        
+        <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 grid grid-cols-1 lg:grid-cols-2 gap-8 h-[calc(100vh-4rem)]">
+          <div className="h-full min-h-[500px]">
+              <InputSection 
+                inputMode={inputMode}
+                setInputMode={setInputMode}
+                cvText={cvText}
+                setCvText={setCvText}
+                cvFile={cvFile}
+                setCvFile={setCvFile}
+                templateInstructions={templateInstructions}
+                setTemplateInstructions={setTemplateInstructions}
+                onProcess={handleProcess}
+                isProcessing={status === ProcessingStatus.PROCESSING}
+                status={status}
+              />
+              
+              {status === ProcessingStatus.ERROR && (
+                  <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800 text-xs italic">
+                      * Mẹo: Nếu lỗi kéo dài, hãy thử copy văn bản từ CV rồi dùng chức năng "Dán văn bản" thay vì tải file.
+                  </div>
+              )}
+          </div>
+
+          <div className="h-full min-h-[500px]">
+             <OutputSection 
+                status={status}
+                result={result}
+                cvFile={cvFile}
+             />
+          </div>
+        </main>
+      </div>
     </div>
   );
 }
