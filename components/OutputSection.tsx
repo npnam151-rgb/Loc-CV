@@ -2,36 +2,35 @@ import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Copy, Check, Download, Edit3, Send, AlertCircle, FileUp } from 'lucide-react';
 import { ProcessingStatus, UploadedFile } from '../types';
+import { APP_CONFIG } from '../constants';
 
 interface OutputSectionProps {
   status: ProcessingStatus;
   result: string;
-  sheetUrl: string;
   cvFile: UploadedFile | null;
+  sheetUrl?: string; // Optional prop for compatibility, but prefer constant
 }
 
-const OutputSection: React.FC<OutputSectionProps> = ({ status, result, sheetUrl, cvFile }) => {
+const OutputSection: React.FC<OutputSectionProps> = ({ status, result, cvFile }) => {
   const [copied, setCopied] = useState(false);
   const [viewMode, setViewMode] = useState<'preview' | 'raw'>('preview');
   const [sendingToSheet, setSendingToSheet] = useState(false);
   const [sendSuccess, setSendSuccess] = useState(false);
 
-  // Detect if string is a markdown table (has separator line)
+  // Detect if string is a markdown table
   const isMarkdownTable = (text: string) => {
     const lines = text.trim().split('\n').filter(line => line.trim() !== '');
     return lines.length >= 2 && lines[0].includes('|') && lines[1].includes('---');
   };
 
-  // Detect if string is just pipe separated data (headless)
+  // Detect if string is just pipe separated data
   const isPipeData = (text: string) => {
     const lines = text.trim().split('\n').filter(line => line.trim() !== '');
-    // Has pipes, but NO markdown table separator
     return lines.length > 0 && lines[0].includes('|') && !text.includes('---|');
   };
 
   const handleCopy = () => {
     let textToCopy = result;
-
     if (viewMode === 'preview') {
       if (isMarkdownTable(result)) {
         textToCopy = markdownTableToTSV(result);
@@ -39,7 +38,6 @@ const OutputSection: React.FC<OutputSectionProps> = ({ status, result, sheetUrl,
         textToCopy = pipeDataToTSV(result);
       }
     }
-    
     navigator.clipboard.writeText(textToCopy);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -55,15 +53,17 @@ const OutputSection: React.FC<OutputSectionProps> = ({ status, result, sheetUrl,
   };
 
   const handleSendToSheet = async () => {
-    if (!sheetUrl) {
-      alert("Vui lòng nhập Link Google Sheet Web App trong phần Cấu hình (Input).");
+    const targetUrl = APP_CONFIG.SHEET_URL;
+
+    if (!targetUrl) {
+      alert("Chưa cấu hình URL Google Sheet.");
       return;
     }
 
     setSendingToSheet(true);
     setSendSuccess(false);
     
-    // Improved Parsing Logic: Find the line with the most pipes
+    // Logic: Find the line with the most pipes
     let rowData: string[] = [];
     const lines = result.trim().split('\n').filter(line => line.trim() !== '');
     
@@ -71,10 +71,7 @@ const OutputSection: React.FC<OutputSectionProps> = ({ status, result, sheetUrl,
     let maxPipes = -1;
 
     for (const line of lines) {
-        // Ignore separator lines like |---|
         if (line.includes('---')) continue;
-        
-        // Count pipes to find the most "data-like" row
         const pipeCount = (line.match(/\|/g) || []).length;
         if (pipeCount > maxPipes) {
             maxPipes = pipeCount;
@@ -90,57 +87,53 @@ const OutputSection: React.FC<OutputSectionProps> = ({ status, result, sheetUrl,
     }
 
     if (rowData.length === 0) {
-        alert("Không tìm thấy dòng dữ liệu hợp lệ (ngăn cách bởi dấu |) để gửi.");
+        alert("Không tìm thấy dòng dữ liệu hợp lệ (ngăn cách bởi dấu |).");
         setSendingToSheet(false);
         return;
     }
 
-    // Prepare payload
-    const payload: any = { rowData };
+    // Payload
+    const payload: any = { 
+        rowData,
+        folderId: APP_CONFIG.FOLDER_ID
+    };
 
-    // Attach File Data if available
     if (cvFile && cvFile.data) {
         try {
-            // cvFile.data is "data:application/pdf;base64,....."
-            // We need to strip the prefix for Google Apps Script
             const base64Content = cvFile.data.split(',')[1];
-            
             payload.fileData = {
                 name: cvFile.name,
                 mimeType: cvFile.type,
                 base64: base64Content
             };
         } catch (e) {
-            console.warn("Could not prepare file for upload", e);
+            console.warn("File error", e);
         }
     }
 
     try {
-        // Use no-cors mode for Google Apps Script Web App.
-        await fetch(sheetUrl, {
+        const urlWithCacheBuster = `${targetUrl}?v=${Date.now()}`;
+        await fetch(urlWithCacheBuster, {
             method: 'POST',
             mode: 'no-cors', 
-            headers: {
-                'Content-Type': 'text/plain',
-            },
+            headers: { 'Content-Type': 'text/plain' },
             body: JSON.stringify(payload),
         });
         
         setSendSuccess(true);
         setTimeout(() => setSendSuccess(false), 3000);
     } catch (error) {
-        console.error("Error sending to sheet:", error);
-        alert("Gửi thất bại. Hãy kiểm tra lại đường link Script hoặc kết nối mạng.");
+        console.error("Sheet Error:", error);
+        alert("Gửi thất bại. Kiểm tra kết nối.");
     } finally {
         setSendingToSheet(false);
     }
   };
 
-  // Convert Markdown table to TSV (excluding separator)
+  // Helper functions for TSV conversion
   const markdownTableToTSV = (text: string) => {
       const lines = text.trim().split('\n').filter(line => line.trim() !== '');
       const dataLines = lines.filter(line => !line.includes('---'));
-      
       return dataLines.map(line => {
           let content = line.trim();
           if (content.startsWith('|')) content = content.substring(1);
@@ -149,7 +142,6 @@ const OutputSection: React.FC<OutputSectionProps> = ({ status, result, sheetUrl,
       }).join('\n');
   };
 
-  // Convert raw pipe data to TSV
   const pipeDataToTSV = (text: string) => {
     const lines = text.trim().split('\n').filter(line => line.trim() !== '');
     return lines.map(line => {
@@ -157,15 +149,12 @@ const OutputSection: React.FC<OutputSectionProps> = ({ status, result, sheetUrl,
     }).join('\n');
   };
 
+  // Renderers
   const PipeDataRenderer = ({ content }: { content: string }) => {
     const lines = content.trim().split('\n').filter(l => l.trim() !== '');
-    
     const parseRow = (row: string) => {
         let r = row.trim();
-        // Remove outer pipes if implied
-        if (r.startsWith('|') && r.endsWith('|')) {
-             r = r.substring(1, r.length - 1);
-        }
+        if (r.startsWith('|') && r.endsWith('|')) r = r.substring(1, r.length - 1);
         return r.split('|').map(c => c.trim());
     };
 
@@ -176,24 +165,19 @@ const OutputSection: React.FC<OutputSectionProps> = ({ status, result, sheetUrl,
             {lines.map((line, idx) => (
               <tr key={idx} className="hover:bg-gray-50">
                 {parseRow(line).map((cell, cIdx) => (
-                  <td key={cIdx} className="px-6 py-4 text-sm text-gray-900 border-r last:border-r-0 border-gray-200">
-                    {cell}
-                  </td>
+                  <td key={cIdx} className="px-6 py-4 text-sm text-gray-900 border-r last:border-r-0 border-gray-200">{cell}</td>
                 ))}
               </tr>
             ))}
           </tbody>
         </table>
-        <div className="bg-gray-50 px-4 py-2 text-xs text-gray-500 text-center border-t border-gray-200">
-          * Dữ liệu dạng bảng thô.
-        </div>
       </div>
     );
   };
 
   const MarkdownTableRenderer = ({ content }: { content: string }) => {
     const lines = content.trim().split('\n').filter(l => l.trim() !== '');
-    const headerLine = lines[0];
+    const headers = lines[0].split('|').filter(c => c.trim()).map(c => c.trim());
     const dataLines = lines.slice(2); 
 
     const parseRow = (row: string) => {
@@ -203,17 +187,13 @@ const OutputSection: React.FC<OutputSectionProps> = ({ status, result, sheetUrl,
         return r.split('|').map(c => c.trim());
     };
 
-    const headers = parseRow(headerLine);
-
     return (
       <div className="overflow-x-auto border border-gray-200 rounded-lg">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
               {headers.map((h, i) => (
-                <th key={i} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r last:border-r-0 border-gray-200">
-                  {h}
-                </th>
+                <th key={i} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r last:border-r-0 border-gray-200">{h}</th>
               ))}
             </tr>
           </thead>
@@ -221,9 +201,7 @@ const OutputSection: React.FC<OutputSectionProps> = ({ status, result, sheetUrl,
             {dataLines.map((line, idx) => (
               <tr key={idx} className="hover:bg-gray-50">
                 {parseRow(line).map((cell, cIdx) => (
-                  <td key={cIdx} className="px-6 py-4 text-sm text-gray-900 border-r last:border-r-0 border-gray-200">
-                    {cell}
-                  </td>
+                  <td key={cIdx} className="px-6 py-4 text-sm text-gray-900 border-r last:border-r-0 border-gray-200">{cell}</td>
                 ))}
               </tr>
             ))}
@@ -241,7 +219,7 @@ const OutputSection: React.FC<OutputSectionProps> = ({ status, result, sheetUrl,
         </div>
         <h3 className="text-lg font-medium text-gray-600">Chưa có dữ liệu</h3>
         <p className="max-w-xs mt-2 text-sm">
-          Tải lên CV và nhập yêu cầu ở cột bên trái, sau đó nhấn "Chuẩn hóa CV" để xem kết quả.
+          Tải lên CV và nhấn "Xử lý & Lưu Sheet" để xem kết quả.
         </p>
       </div>
     );
@@ -251,9 +229,7 @@ const OutputSection: React.FC<OutputSectionProps> = ({ status, result, sheetUrl,
     return (
       <div className="flex flex-col h-full bg-white rounded-xl shadow-sm border border-red-200 items-center justify-center p-8 text-center">
         <div className="bg-red-50 p-4 rounded-full mb-4">
-          <svg className="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-          </svg>
+           <AlertCircle className="w-10 h-10 text-red-500" />
         </div>
         <h3 className="text-lg font-medium text-red-700">Đã xảy ra lỗi</h3>
         <p className="text-gray-600 mt-2 max-w-sm">{result}</p>
@@ -276,64 +252,42 @@ const OutputSection: React.FC<OutputSectionProps> = ({ status, result, sheetUrl,
           <div className="flex space-x-1 bg-white border border-gray-200 rounded-md p-0.5">
              <button
               onClick={() => setViewMode('preview')}
-              className={`px-2 py-1 text-xs rounded transition-colors ${
-                viewMode === 'preview' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-500 hover:bg-gray-50'
-              }`}
+              className={`px-2 py-1 text-xs rounded transition-colors ${viewMode === 'preview' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-500 hover:bg-gray-50'}`}
             >
               Xem trước
             </button>
             <button
               onClick={() => setViewMode('raw')}
-              className={`px-2 py-1 text-xs rounded transition-colors ${
-                viewMode === 'raw' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-500 hover:bg-gray-50'
-              }`}
+              className={`px-2 py-1 text-xs rounded transition-colors ${viewMode === 'raw' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-500 hover:bg-gray-50'}`}
             >
               Mã nguồn
             </button>
           </div>
         </div>
         <div className="flex items-center space-x-2">
-          {sheetUrl && canConvertToExcel && (
+          {APP_CONFIG.SHEET_URL && canConvertToExcel && (
             <button
               onClick={handleSendToSheet}
               disabled={sendingToSheet}
               className={`flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                sendSuccess
-                  ? 'bg-green-600 text-white'
-                  : 'bg-green-50 text-green-700 hover:bg-green-100 border border-green-200'
+                sendSuccess ? 'bg-green-600 text-white' : 'bg-green-50 text-green-700 hover:bg-green-100 border border-green-200'
               }`}
-              title="Gửi dữ liệu vào Google Sheet & Lưu file CV vào Drive"
             >
-              {sendingToSheet ? (
-                <span className="w-3 h-3 border-2 border-green-700 border-t-transparent rounded-full animate-spin"></span>
-              ) : sendSuccess ? (
-                <Check className="w-3 h-3" />
-              ) : (
-                <>
-                    {cvFile ? <FileUp className="w-3 h-3" /> : <Send className="w-3 h-3" />}
-                </>
-              )}
-              <span>{sendingToSheet ? 'Đang gửi...' : sendSuccess ? 'Hoàn tất!' : (cvFile ? 'Lưu Sheet & Drive' : 'Gửi vào Sheet')}</span>
+              {sendingToSheet ? <span className="w-3 h-3 border-2 border-green-700 border-t-transparent rounded-full animate-spin"></span> : (sendSuccess ? <Check className="w-3 h-3" /> : (cvFile ? <FileUp className="w-3 h-3" /> : <Send className="w-3 h-3" />))}
+              <span>{sendingToSheet ? 'Đang gửi...' : sendSuccess ? 'Hoàn tất!' : 'Lưu Sheet'}</span>
             </button>
           )}
-
-          <button
-            onClick={handleDownload}
-            className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-            title="Tải xuống .txt"
-          >
+          <button onClick={handleDownload} className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
             <Download className="w-4 h-4" />
           </button>
           <button
             onClick={handleCopy}
             className={`flex items-center space-x-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              copied 
-                ? 'bg-green-100 text-green-700' 
-                : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+              copied ? 'bg-green-100 text-green-700' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
             }`}
           >
             {copied ? <Check className="w-3 h-3 mr-1" /> : <Copy className="w-3 h-3 mr-1" />}
-            {copied ? (canConvertToExcel && viewMode === 'preview' ? 'Đã copy Excel' : 'Đã sao chép') : (canConvertToExcel && viewMode === 'preview' ? 'Copy Excel' : 'Sao chép')}
+            {copied ? 'Đã copy' : 'Copy'}
           </button>
         </div>
       </div>
@@ -342,43 +296,19 @@ const OutputSection: React.FC<OutputSectionProps> = ({ status, result, sheetUrl,
         {status === ProcessingStatus.PROCESSING ? (
           <div className="animate-pulse space-y-4">
             <div className="h-6 bg-gray-200 rounded w-1/3"></div>
-            <div className="space-y-2">
-              <div className="h-4 bg-gray-200 rounded"></div>
-              <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-            </div>
+            <div className="h-4 bg-gray-200 rounded"></div>
             <div className="h-32 bg-gray-100 rounded border border-gray-200 p-4"></div>
           </div>
         ) : (
           viewMode === 'preview' ? (
-             isTable ? (
-               <MarkdownTableRenderer content={result} />
-             ) : isPipe ? (
-                <PipeDataRenderer content={result} />
-             ) : (
-               <div className="prose prose-sm prose-blue max-w-none">
-                 <ReactMarkdown>{result}</ReactMarkdown>
-               </div>
-             )
+             isTable ? <MarkdownTableRenderer content={result} /> : 
+             isPipe ? <PipeDataRenderer content={result} /> : 
+             <div className="prose prose-sm prose-blue max-w-none"><ReactMarkdown>{result}</ReactMarkdown></div>
           ) : (
-            <textarea 
-              readOnly 
-              className="w-full h-full font-mono text-sm text-gray-800 focus:outline-none resize-none whitespace-pre"
-              value={result}
-            />
+            <textarea readOnly className="w-full h-full font-mono text-sm text-gray-800 focus:outline-none resize-none whitespace-pre" value={result} />
           )
         )}
       </div>
-      
-      {/* Troubleshooting Tip */}
-      {sheetUrl && (
-          <div className="bg-yellow-50 px-4 py-2 border-t border-yellow-100 text-[10px] text-yellow-700 flex items-start gap-1">
-              <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0"/>
-              <p>
-                  Nếu nút Gửi báo "Đã gửi" nhưng Sheet không có dữ liệu: Hãy kiểm tra Script Deployment. 
-                  Quyền truy cập phải là "Anyone" (Bất kỳ ai). Nếu sửa code Script, nhớ chọn "New deployment".
-              </p>
-          </div>
-      )}
     </div>
   );
 };

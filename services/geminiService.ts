@@ -30,13 +30,26 @@ const processCV = async (
   const parts: any[] = [{ text: userPrompt }];
 
   if (cvFile) {
-    const base64Data = cvFile.data.split(',')[1]; 
-    parts.unshift({
-      inlineData: {
-        data: base64Data,
-        mimeType: cvFile.type
-      }
-    });
+    // Chỉ gửi inlineData nếu là PDF hoặc Ảnh. 
+    // File Word (.docx) đã được trích xuất thành text ở InputSection và đưa vào cvText ở trên rồi.
+    const supportedMimeTypes = [
+        'application/pdf', 
+        'image/png', 
+        'image/jpeg', 
+        'image/webp', 
+        'image/heic', 
+        'image/heif'
+    ];
+
+    if (supportedMimeTypes.includes(cvFile.type)) {
+        const base64Data = cvFile.data.split(',')[1]; 
+        parts.unshift({
+            inlineData: {
+                data: base64Data,
+                mimeType: cvFile.type
+            }
+        });
+    }
   }
 
   try {
