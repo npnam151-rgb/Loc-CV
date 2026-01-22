@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Upload, Type, X, File as FileIcon, Check, Send, AlertTriangle } from 'lucide-react';
 import { InputMode, UploadedFile, ProcessingStatus } from '../types';
-import mammoth from 'mammoth';
+import * as mammoth from 'mammoth';
 
 interface InputSectionProps {
   inputMode: InputMode;
