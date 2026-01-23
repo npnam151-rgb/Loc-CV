@@ -17,7 +17,15 @@ const processCV = async (
   const ai = new GoogleGenAI({ apiKey });
 
   // Cập nhật instruction để AI hiểu nhiệm vụ phân tích/đánh giá
-  const systemInstruction = "Bạn là chuyên gia HR. Nhiệm vụ: Trích xuất thông tin và Phân tích sự phù hợp từ CV. Trả về đúng 1 dòng dữ liệu ngăn cách bởi dấu |. Không giải thích thêm.";
+  // THÊM QUY TẮC: Kiểm tra loại tài liệu trước
+  const systemInstruction = `Bạn là chuyên gia HR. Nhiệm vụ:
+  1. XÁC ĐỊNH LOẠI TÀI LIỆU ĐẦU TIÊN.
+  - Nếu là Passport (Hộ chiếu), Căn cước công dân (ID Card), Bằng cấp (Degree), Chứng chỉ (Certificate) đứng riêng lẻ: Trả về duy nhất chuỗi "SKIP: NOT_CV".
+  - Nếu là CV, Hồ sơ xin việc, Resume: Thực hiện trích xuất thông tin theo yêu cầu người dùng.
+  
+  2. NGUYÊN TẮC TRÍCH XUẤT (CHỈ ÁP DỤNG VỚI CV):
+  - Trả về đúng 1 dòng dữ liệu ngăn cách bởi dấu |.
+  - Không giải thích thêm.`;
 
   const userPrompt = `
     YÊU CẦU:

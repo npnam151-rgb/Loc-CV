@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Header from './components/Header';
 import InputSection from './components/InputSection';
+import OutputSection from './components/OutputSection';
 import { InputMode, ProcessingStatus, UploadedFile } from './types';
 import { processCV } from './services/geminiService';
 import { APP_CONFIG } from './constants';
@@ -80,6 +81,24 @@ function App() {
     
     try {
       const aiResult = await processCV(templateInstructions, cvText, cvFile);
+      
+      // KIỂM TRA LOẠI TÀI LIỆU
+      if (aiResult && aiResult.includes("SKIP: NOT_CV")) {
+         const skipMsg = "⚠️ ĐÃ BỎ QUA: Hệ thống phát hiện đây là Passport hoặc Bằng cấp, không phải CV nên KHÔNG lưu vào Sheet.";
+         setResult(skipMsg);
+         // Sử dụng trạng thái ERROR để hiển thị thông báo trong hộp màu đỏ nổi bật
+         setStatus(ProcessingStatus.ERROR); 
+         
+         // Clear file sau 5s để người dùng làm tiếp
+         setTimeout(() => {
+            setCvFile(null);
+            setCvText('');
+            setStatus(ProcessingStatus.IDLE);
+            setResult(''); 
+         }, 5000);
+         return; 
+      }
+
       setResult(aiResult); 
       
       const rowData = parseResultToRowData(aiResult);
@@ -95,7 +114,7 @@ function App() {
           setCvFile(null);
           setCvText('');
           setStatus(ProcessingStatus.IDLE);
-          setResult(''); // Clear result message
+          setResult(''); 
       }, 3500);
 
     } catch (error: any) {
@@ -107,11 +126,12 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col font-['Inter'] bg-[#f9fafb]">
-      <div className="relative z-10 flex flex-col min-h-screen">
-        <Header />
-        
-        <main className="flex-1 w-full max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+    <div className="min-h-screen flex flex-col bg-gray-50">
+      <Header />
+      
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full">
+          <div className="h-full">
             <InputSection 
               inputMode={inputMode}
               setInputMode={setInputMode}
@@ -126,8 +146,16 @@ function App() {
               status={status}
               result={result}
             />
-        </main>
-      </div>
+          </div>
+          <div className="h-full min-h-[500px]">
+            <OutputSection 
+              status={status}
+              result={result}
+              cvFile={cvFile}
+            />
+          </div>
+        </div>
+      </main>
     </div>
   );
 }
