@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import Header from './components/Header';
 import InputSection from './components/InputSection';
-import OutputSection from './components/OutputSection';
 import { InputMode, ProcessingStatus, UploadedFile } from './types';
 import { processCV } from './services/geminiService';
 import { APP_CONFIG } from './constants';
@@ -129,32 +128,21 @@ function App() {
     <div className="min-h-screen flex flex-col bg-gray-50">
       <Header />
       
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full">
-          <div className="h-full">
-            <InputSection 
-              inputMode={inputMode}
-              setInputMode={setInputMode}
-              cvText={cvText}
-              setCvText={setCvText}
-              cvFile={cvFile}
-              setCvFile={setCvFile}
-              templateInstructions={templateInstructions}
-              setTemplateInstructions={setTemplateInstructions}
-              onProcess={handleProcess}
-              isProcessing={status === ProcessingStatus.PROCESSING}
-              status={status}
-              result={result}
-            />
-          </div>
-          <div className="h-full min-h-[500px]">
-            <OutputSection 
-              status={status}
-              result={result}
-              cvFile={cvFile}
-            />
-          </div>
-        </div>
+      <main className="flex-1 max-w-3xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <InputSection 
+          inputMode={inputMode}
+          setInputMode={setInputMode}
+          cvText={cvText}
+          setCvText={setCvText}
+          cvFile={cvFile}
+          setCvFile={setCvFile}
+          templateInstructions={templateInstructions}
+          setTemplateInstructions={setTemplateInstructions}
+          onProcess={handleProcess}
+          isProcessing={status === ProcessingStatus.PROCESSING}
+          status={status}
+          result={result}
+        />
       </main>
     </div>
   );
