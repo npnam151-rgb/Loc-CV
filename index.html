@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="https://upload.wikimedia.org/wikipedia/commons/4/45/Gemini_language_model_logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>HR CV Formatter - Trợ lý Tuyển dụng</title>
+    <title>CV Scanner - Trợ lý Tuyển dụng</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -16,6 +16,16 @@
       textarea::-webkit-scrollbar-track { background: #f1f1f1; }
       textarea::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
       textarea::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+      
+      /* Styles cho màn hình loading/error */
+      #root:empty::before {
+        content: 'Đang tải ứng dụng...';
+        display: block;
+        text-align: center;
+        margin-top: 20vh;
+        color: #6b7280;
+        font-family: 'Inter', sans-serif;
+      }
     </style>
   <script type="importmap">
 {
@@ -23,11 +33,11 @@
     "react": "https://esm.sh/react@^19.2.3",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "react/": "https://esm.sh/react@^19.2.3/",
-    "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
-    "lucide-react": "https://esm.sh/lucide-react@^0.561.0",
+    "@google/genai": "https://esm.sh/@google/genai@^1.38.0",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "mammoth": "https://esm.sh/mammoth@^1.11.0",
     "react-markdown": "https://esm.sh/react-markdown@^10.1.0",
-    "mammoth": "https://esm.sh/mammoth@1.8.0",
-    "vite": "https://esm.sh/vite@^7.3.0",
+    "vite": "https://esm.sh/vite@^7.3.1",
     "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2"
   }
 }
@@ -36,6 +46,25 @@
 </head>
   <body>
     <div id="root"></div>
+    
+    <!-- Script bắt lỗi global để hiển thị lên màn hình nếu App crash ngay khi khởi động -->
+    <script>
+      window.addEventListener('error', function(event) {
+        var root = document.getElementById('root');
+        // Chỉ hiển thị lỗi nếu root chưa render được gì (vẫn đang trắng hoặc loading)
+        if (root && (!root.hasChildNodes() || root.innerText.includes('Đang tải'))) {
+           root.innerHTML = '<div style="padding: 2rem; text-align: center; font-family: sans-serif; color: #374151;">' +
+             '<h2 style="color: #ef4444; margin-bottom: 0.5rem; font-weight: bold; font-size: 1.25rem;">Không thể khởi động ứng dụng</h2>' +
+             '<p style="margin-bottom: 1rem;">Đã xảy ra lỗi runtime nghiêm trọng.</p>' +
+             '<div style="background: #fee2e2; color: #b91c1c; padding: 1rem; border-radius: 0.5rem; text-align: left; display: inline-block; max-width: 100%; overflow-x: auto; font-family: monospace;">' + 
+             (event.error ? event.error.stack : event.message) + 
+             '</div>' +
+             '<div style="margin-top: 1rem;"><button onclick="window.location.reload()" style="background: #2563eb; color: white; border: none; padding: 0.5rem 1rem; border-radius: 0.25rem; cursor: pointer;">Tải lại trang</button></div>' +
+             '</div>';
+        }
+      });
+    </script>
+    
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>
