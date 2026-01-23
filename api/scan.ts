@@ -2,7 +2,12 @@ import { GoogleGenAI } from "@google/genai";
 
 // Cấu hình cho Vercel Serverless Function
 export const config = {
-  maxDuration: 60, // Tăng thời gian xử lý lên 60s
+  maxDuration: 60, // Thời gian xử lý tối đa 60s
+  api: {
+    bodyParser: {
+      sizeLimit: '4mb', // Tăng giới hạn dung lượng body lên 4MB (Mặc định là 1MB)
+    },
+  },
 };
 
 const DEFAULT_INSTRUCTION = `TRÍCH XUẤT 1 DÒNG DUY NHẤT:
@@ -15,8 +20,8 @@ Họ tên | Quốc tịch | Địa chỉ hiện tại | Năm sinh | Email | Số
 4. Nếu thiếu thông tin ghi N/A)`;
 
 export default async function handler(req: any, res: any) {
-  // 1. Xử lý CORS
-  res.setHeader('Access-Control-Allow-Credentials', true);
+  // 1. Xử lý CORS chuẩn
+  // Nếu Allow-Origin là * thì KHÔNG ĐƯỢC để Allow-Credentials là true
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
   res.setHeader(
@@ -24,6 +29,7 @@ export default async function handler(req: any, res: any) {
     'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
   );
 
+  // Handle preflight request
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
@@ -38,20 +44,28 @@ export default async function handler(req: any, res: any) {
     // 2. Lấy API Key
     const apiKey = process.env.API_KEY;
     if (!apiKey) {
+      console.error("Missing API Key");
       res.status(500).json({ error: 'Server configuration error: Missing API Key' });
       return;
     }
 
     // 3. Parse Body từ Request
-    // Vercel Serverless Function (Node.js) tự động parse body nếu Content-Type là application/json
     let body = req.body;
     
+    // Debug Log: Kiểm tra xem body có nhận được không
+    if (!body) {
+        console.error("Body is empty/null");
+        res.status(400).json({ error: 'Empty request body' });
+        return;
+    }
+
     // Fallback nếu body chưa được parse (dạng string)
     if (typeof body === 'string') {
         try {
             body = JSON.parse(body);
         } catch (e) {
-            res.status(400).json({ error: 'Invalid JSON body' });
+            console.error("JSON Parse Error:", e);
+            res.status(400).json({ error: 'Invalid JSON body', details: (e as any).message });
             return;
         }
     }
@@ -65,9 +79,12 @@ export default async function handler(req: any, res: any) {
 
     // Validate Input
     if (!text && !base64) {
+      console.error("Missing text and base64. Received keys:", Object.keys(body));
       res.status(400).json({ error: 'Missing data: Provide "base64" (file) or "text" (content).' });
       return;
     }
+
+    console.log("Processing request..."); // Log bắt đầu xử lý
 
     // 4. Gọi Gemini AI
     const ai = new GoogleGenAI({ apiKey });
@@ -82,7 +99,6 @@ export default async function handler(req: any, res: any) {
     - Trả về đúng 1 dòng dữ liệu ngăn cách bởi dấu |.
     - Không giải thích thêm.`;
     
-    // Prompt người dùng
     const userInstruction = instruction || DEFAULT_INSTRUCTION;
     const userPrompt = `
       YÊU CẦU:
@@ -117,12 +133,13 @@ export default async function handler(req: any, res: any) {
     });
 
     const resultText = response.text;
+    console.log("AI Response Success"); // Log thành công
 
     // 5. Trả về kết quả
     res.status(200).json({ result: resultText });
 
   } catch (error: any) {
-    console.error("API Error:", error);
+    console.error("API Error Detail:", error);
     res.status(500).json({ error: error.message || 'Internal Server Error' });
   }
 }
